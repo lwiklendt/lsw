@@ -6,6 +6,12 @@ from numba import njit
 from scipy.special import logit, expit
 
 
+def ceil_pow_2(k):
+    if bin(k).count('1') > 1:
+        k = 1 << k.bit_length()
+    return k
+
+
 def box_filter(x, size, k=1, **kwargs):
     size = int(np.round(size))
     y = x.copy()
