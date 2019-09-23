@@ -2,6 +2,93 @@ import numpy as np
 import scipy.stats
 
 
+def rhat_orig(thetas, m, axis=0):
+    """
+    Vehtari, A.; Gelman, A.; Simpson, D.; Carpenter, B. & Bürkner, P.-C.
+    Rank-normalization, folding, and localization: An improved Rhat for assessing convergence of MCMC.
+    arXiv preprint arXiv:1903.08008, 2019
+    :param thetas: an array of values for parameter, length must be divisible by n
+    :param m: number of chains, or supply double the number of chains for split-rhat
+    :param axis: the axis of theta corresponding to samples, default 0
+    :return: non-rank-normalised rhat, for rank-normalised version see the rhat_ranknorm function
+    """
+
+    def rhat_1d(theta):
+        theta = np.reshape(theta, (-1, m), order='F')  # (n, m) with n draws per chain, and m chains
+        n = theta.shape[0]
+
+        var_between_chain = theta.mean(axis=0).var(ddof=1)
+        var_within_chain = theta.var(ddof=1, axis=0).mean()
+        var = (n-1)/n * var_within_chain + var_between_chain
+
+        return np.sqrt(var / var_within_chain)
+
+    return np.apply_along_axis(rhat_1d, axis, thetas)
+
+
+def rhat_ranknorm(thetas, m, axis=0):
+    """
+    Vehtari, A.; Gelman, A.; Simpson, D.; Carpenter, B. & Bürkner, P.-C.
+    Rank-normalization, folding, and localization: An improved Rhat for assessing convergence of MCMC.
+    arXiv preprint arXiv:1903.08008, 2019
+    :param thetas: 1D array of values for parameter, length must be divisible by n
+    :param m: number of chains, or supply double the number of chains for split-rhat
+    :param axis: the axis of theta corresponding to samples, default 0
+    :return: rank-normalised rhat, for non-rank-normalised version see the rhat function
+    """
+
+    def rhat_ranknown_1d(theta):
+        r = scipy.stats.rankdata(theta)
+        z = scipy.stats.norm.ppf((r - 0.5)/len(r))
+        return rhat_orig(z, m)
+
+    return np.apply_along_axis(rhat_ranknown_1d, axis, thetas)
+
+
+def rhat(thetas, m, axis=0):
+    """
+    Vehtari, A.; Gelman, A.; Simpson, D.; Carpenter, B. & Bürkner, P.-C.
+    Rank-normalization, folding, and localization: An improved Rhat for assessing convergence of MCMC.
+    arXiv preprint arXiv:1903.08008, 2019
+    :param thetas: 1D array of values for parameter, length must be divisible by n
+    :param m: number of chains, or supply double the number of chains for split-rhat
+    :param axis: the axis of theta corresponding to samples, default 0
+    :return: maximum of the rank-normalised rhat and folded rank-normalised rhat (section 4.2 of paper)
+    """
+
+    zetas = np.abs(thetas - np.median(thetas, axis=axis, keepdims=True))
+    rhat_folded = rhat_ranknorm(zetas, m, axis)
+    rhat_unfolded = rhat_ranknorm(thetas, m, axis)
+
+    return np.maximum(rhat_folded, rhat_unfolded)
+
+
+def entropy_discrete(p, axis=None):
+    return -np.sum(p * np.log2(p), axis=axis)
+
+
+def jensen_shannon_div(p, w=None):
+    """
+    Generalised Jensen-Shannon divergence from equation (5.1) of the paper
+    Lin, J. Divergence measures based on the Shannon entropy IEEE Transactions on Information theory, IEEE, 1991, 37, 145-151.
+    :param p: (n,k) matrix of probabilities for n discrete distributions, each k values, s.t. for any distribution i, np.sum(p[i,:]) == 1
+    :param w: n weights, or None if all are equal
+    :return: float containing the divergence measure
+    """
+
+    n, k = p.shape
+
+    # make weight matrix sum to 1
+    if w is None:
+        w = np.ones(n)
+    w = (np.array(w) / np.sum(w)).reshape((1, n))
+
+    # weighted-average of the probability distributions
+    p_avg = (w @ p)[0]
+
+    return entropy_discrete(p_avg) - np.sum(w * entropy_discrete(p, axis=1))
+
+
 # pretty much copied (with minor changes) from scikits.bootstrap which wouldn't install on my system
 # see https://github.com/cgevans/scikits-bootstrap/blob/master/scikits/bootstrap/bootstrap.py#L20
 def bootci_pi(data, statfunc=lambda x: np.mean(x, axis = 0), alpha=0.05, n_samples=10000):
