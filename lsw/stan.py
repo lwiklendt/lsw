@@ -100,12 +100,12 @@ def compile_model(code=None, code_filename=None, model_name=None, cache_filename
         with open(cache_filename, 'rb') as f:
             cached_code_digest, stan_model = pickle.load(f)
         if cached_code_digest != code_digest:
-            stan_model = None
             print('Stan model code is different to the cached version (- cached, + curr):')
             # print the diff between cached and current code
             result = difflib.unified_diff(stan_model.model_code.splitlines(), code.splitlines(), n=0, lineterm='')
             print('\n'.join(list(result)[2:]))  # [2:] is to remove the control lines '---' and '+++'
             print('recompiling...')
+            stan_model = None
 
     # if cached version is different or doesn't exist
     if stan_model is None:
@@ -114,6 +114,9 @@ def compile_model(code=None, code_filename=None, model_name=None, cache_filename
         stan_model.model_code = code  # for some reason PyStan doesn't keep the model_code as shown in its API
         print(f'Elapsed compilation time: {datetime.datetime.now() - compile_start}')
         if cache_filename is not None:
+            cache_path = os.path.split(cache_filename)[0]
+            if not os.path.exists(cache_path):
+                os.makedirs(cache_path)
             with open(cache_filename, 'wb') as f:
                 pickle.dump((code_digest, stan_model), f, protocol=2)
 
@@ -129,7 +132,7 @@ def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan
     diagnostics_filename   = os.path.join(outpath, 'diagnostics.txt')
     traces_filename        = os.path.join(outpath, 'traces.png')
 
-    code_digest = md5(stan_model.code.encode('utf8')).hexdigest()
+    code_digest = md5(stan_model.model_code.encode('utf8')).hexdigest()
 
     # check if we need to resample, or can load from cache
     needs_sample = True
@@ -191,7 +194,7 @@ def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan
             samples = pystan_vb_extract(results)
 
         else:
-            stan_kwargs['algorithm'] = stan_kwargs['algorithm'].upper()
+            stan_kwargs['algorithm'] = method
             samples = stan_model.optimizing(data, as_vector=True, **stan_kwargs)
 
             # make compatible with sample, by returning as a single sample
@@ -262,7 +265,7 @@ def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan
         if method == 'mcmc':
             print(f'min, max Rhat = {np.nanmin(samples.rhat)}, {np.nanmax(samples.rhat)}')
 
-    return samples
+    return samples, needs_sample
 
 
 def pystan_vb_extract(results):
