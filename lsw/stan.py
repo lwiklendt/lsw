@@ -86,71 +86,50 @@ def partition_div(fit):
     return nondiv_params, div_params
 
 
-def compile_model(filename, model_name=None, cache_path=None):
-    """This will automatically cache models - great if you're just running a
-    script on the command line.
-
-    See http://pystan.readthedocs.io/en/latest/avoiding_recompilation.html"""
-
-    with open(filename) as f_src:
-        model_code = f_src.read()
-        code_hash = md5(model_code.encode('utf8')).hexdigest()
-        if model_name is None:
-            model_name = os.path.splitext(os.path.split(filename)[-1])[0]
-            print(f'Inferred model name: {model_name}')
-        cache_fn = f'{model_name}-{code_hash}.pkl'
-        if cache_path is not None:
-            cache_fn = os.path.join(cache_path, cache_fn)
-        if os.path.exists(cache_fn):
-            sm = pickle.load(open(cache_fn, 'rb'))
-            print('Using cached StanModel')
-        else:
-            sm = pystan.StanModel(model_name=model_name, model_code=model_code, obfuscate_model_name=False)
-            with open(cache_fn, 'wb') as f_pkl:
-                pickle.dump(sm, f_pkl, protocol=2)
-        return sm
-
-
-def sample_in_path(outpath, data, code=None, code_filename=None, params=None, method='mcmc', **stan_kwargs):
-
-    if not os.path.exists(outpath):
-        os.makedirs(outpath)
-
-    model_cache_filename   = os.path.join(outpath, 'stan_model.pkl')
-    model_code_filename    = os.path.join(outpath, 'model.stan')
-    samples_cache_filename = os.path.join(outpath, 'samples.pkl')
-    diagnostics_filename   = os.path.join(outpath, 'diagnostics.txt')
-    traces_filename        = os.path.join(outpath, 'traces.png')
+def compile_model(code=None, code_filename=None, model_name=None, cache_filename=None):
 
     # if code was not supplied but a filename was, then read the filename
     if code is None and code_filename is not None:
         with open(code_filename, 'r') as f:
             code = f.read()
 
-    # write out stan source code
-    with open(model_code_filename, 'w') as f:
-        f.write(code)
-
-    # compile stan code
+    # get cached version
     stan_model = None
     code_digest = md5(code.encode('utf8')).hexdigest()
-    if model_cache_filename is not None and os.path.exists(model_cache_filename):
-        with open(model_cache_filename, 'rb') as f:
-            cached_digest, cached_stan_code, stan_model = pickle.load(f)
-        if cached_digest != code_digest:
+    if cache_filename is not None and os.path.exists(cache_filename):
+        with open(cache_filename, 'rb') as f:
+            cached_code_digest, stan_model = pickle.load(f)
+        if cached_code_digest != code_digest:
             stan_model = None
             print('Stan model code is different to the cached version (- cached, + curr):')
             # print the diff between cached and current code
-            result = difflib.unified_diff(cached_stan_code.splitlines(), code.splitlines(), n=0, lineterm='')
+            result = difflib.unified_diff(stan_model.model_code.splitlines(), code.splitlines(), n=0, lineterm='')
             print('\n'.join(list(result)[2:]))  # [2:] is to remove the control lines '---' and '+++'
             print('recompiling...')
+
+    # if cached version is different or doesn't exist
     if stan_model is None:
         compile_start = datetime.datetime.now()
-        stan_model = pystan.StanModel(model_code=code)
+        stan_model = pystan.StanModel(model_code=code, model_name=model_name)
+        stan_model.model_code = code  # for some reason PyStan doesn't keep the model_code as shown in its API
         print(f'Elapsed compilation time: {datetime.datetime.now() - compile_start}')
-        if model_cache_filename is not None:
-            with open(model_cache_filename, 'wb') as f:
-                pickle.dump((code_digest, code, stan_model), f, protocol=2)
+        if cache_filename is not None:
+            with open(cache_filename, 'wb') as f:
+                pickle.dump((code_digest, stan_model), f, protocol=2)
+
+    return stan_model
+
+
+def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan_kwargs):
+
+    if not os.path.exists(outpath):
+        os.makedirs(outpath)
+
+    samples_cache_filename = os.path.join(outpath, 'samples.pkl')
+    diagnostics_filename   = os.path.join(outpath, 'diagnostics.txt')
+    traces_filename        = os.path.join(outpath, 'traces.png')
+
+    code_digest = md5(stan_model.code.encode('utf8')).hexdigest()
 
     # check if we need to resample, or can load from cache
     needs_sample = True
