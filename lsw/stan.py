@@ -211,7 +211,8 @@ def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan
                 f.write(f'seed: {samples.seed}\n')
                 f.write(f'elapsed_time: {samples.elapsed_time}\n')
                 f.write(f'check_treedepth: {samples.check_treedepth}\n')
-                f.write(f'check_divergences: {samples.check_div}\n\n')
+                f.write(f'check_divergences: {samples.check_div}\n')
+                f.write(f'max rhat: {np.max(samples.rhat)}\n\n')
                 f.write(f'check_fit:\n{samples.check_fit}\n')
 
         # if no parameters supplied, get the list from the samples
