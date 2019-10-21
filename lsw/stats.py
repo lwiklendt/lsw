@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.stats
+from scipy.special import gammaln
 
 
 def rhat_orig(thetas, m, axis=0):
@@ -65,6 +66,59 @@ def rhat(thetas, m, axis=0):
 
 def entropy_discrete(p, axis=None):
     return -np.sum(p * np.log2(p), axis=axis)
+
+
+def jensen_shannon_div_norm(mu, sigma, w=None):
+    """
+    Generalised Jensen-Shannon divergence from equation (5.1) of the paper
+    Lin, J. Divergence measures based on the Shannon entropy IEEE Transactions on Information theory, IEEE, 1991, 37, 145-151.
+    :param mu: n location or mean parameters
+    :param sigma: n scale or standard deviation parameters
+    :param w: n weights, or None if all are equal
+    :return: float containing the divergence measure
+    """
+
+    n = len(mu)
+    mu = np.array(mu)
+    sigma = np.array(sigma)
+
+    # make weight matrix sum to 1
+    if w is None:
+        w = np.ones(n)
+    w = (np.array(w) / np.sum(w)).reshape((1, n))
+
+    mu_sum = np.dot(w, mu)
+    sigma_sum = np.sqrt(np.dot(w, sigma**2))
+    entropy_of_sum = scipy.stats.norm(mu_sum, sigma_sum).entropy()
+
+    sum_of_entropies = np.dot(w, scipy.stats.norm(mu, sigma).entropy())
+
+    return entropy_of_sum - sum_of_entropies
+
+
+def jensen_shannon_div_bern(p, w=None):
+    """
+    Generalised Jensen-Shannon divergence from equation (5.1) of the paper
+    Lin, J. Divergence measures based on the Shannon entropy IEEE Transactions on Information theory, IEEE, 1991, 37, 145-151.
+    :param p: n probabilities for the Bernoulli distribution
+    :param w: n weights, or None if all are equal
+    :return: float containing the divergence measure
+    """
+
+    n = len(p)
+    p = np.array(p)
+
+    # make weight matrix sum to 1
+    if w is None:
+        w = np.ones(n)
+    w = (np.array(w) / np.sum(w)).reshape((1, n))
+
+    p_sum = np.dot(w, p)
+    entropy_of_sum = scipy.stats.bernoulli(p_sum).entropy()
+
+    sum_of_entropies = np.dot(w, scipy.stats.bernoulli(p).entropy())
+
+    return entropy_of_sum - sum_of_entropies
 
 
 def jensen_shannon_div(p, w=None):
@@ -176,3 +230,9 @@ def projected_normal_pdf(theta, mu, sd, rho):
 
     pdf_param = a / np.sqrt(c) * (mu[0] * st - mu[1] * ct)
     return (phi + a * d * scipy.stats.norm.cdf(d) * scipy.stats.norm.pdf(pdf_param)) / c
+
+
+def beta_binomial_lpmf(n, N, alpha, beta):
+    num = gammaln(N + 1) + gammaln(n + alpha) + gammaln(N - n + beta) + gammaln(alpha + beta)
+    den = gammaln(n + 1) + gammaln(N - n + 1) + gammaln(N + alpha + beta) + gammaln(alpha) + gammaln(beta)
+    return num - den
