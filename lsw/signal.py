@@ -6,6 +6,12 @@ from numba import njit
 from scipy.special import logit, expit
 
 
+def make_nondecreasing(x):
+    dx = np.diff(x)
+    dx[dx < 0] = 0
+    return x[0] + np.r_[0, np.cumsum(dx)]
+
+
 def ceil_pow_2(k):
     if bin(k).count('1') > 1:
         k = 1 << k.bit_length()
@@ -33,6 +39,13 @@ def box_baseline(x, size, k=1, iters=10, **kwargs):
             x = np.minimum(orig, x)
     return x
 
+def baseline_gauss(x, sigma, iters):
+    orig = x
+    for i in range(iters):
+        x = scipy.ndimage.gaussian_filter1d(x, sigma)
+        if i < iters - 1:
+            x = np.minimum(orig, x)
+    return x
 
 def butter_bandpass(x, fs_hz, low_hz, high_hz, order=15, axis=-1):
     nyq_hz = 0.5 * fs_hz
