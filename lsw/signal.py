@@ -65,6 +65,21 @@ def butter_highpass(x, fs_hz, high_hz, order=15, axis=-1):
     return scipy.signal.sosfiltfilt(sos, x, axis=axis)
 
 
+def gauss_smooth(x, sigma):
+
+    n = len(x)
+    n_nextpow2 = int(2 ** np.ceil(np.log2(n)))
+
+    f = 2 * np.pi * np.fft.fftfreq(n_nextpow2)
+    ft = np.exp(-0.5 * (f * sigma) ** 2)
+    x_smooth = np.fft.ifft(ft * np.fft.fft(x, n_nextpow2))[:n]
+
+    if np.isrealobj(x):
+        return x_smooth.real
+    else:
+        return x_smooth
+
+
 @njit
 def find_extrema(x):
     """

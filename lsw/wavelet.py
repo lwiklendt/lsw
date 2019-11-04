@@ -6,7 +6,7 @@ from typing import Union, Iterable
 
 import lsw.mesaclip as mesaclip
 from lsw.thread import parexec
-from lsw.signal import make_nondecreasing
+from lsw.signal import make_nondecreasing, gauss_smooth
 
 real = Union[float, int]
 R = Union[np.ndarray, Iterable, real]
@@ -318,3 +318,31 @@ def cwt(x: np.ndarray, dt: float, scales: np.ndarray, mother: Wavelet,
             w *= coi_mask
 
     return w, coi_mask, coi_time_idxs, coi_freq_idxs
+
+
+def coherence(wx, wy, sigmas):
+
+    wxy = wx * wy.conj()
+    coh = np.zeros_like(wx, dtype=wx.dtype)
+
+    def amp2(x): return np.abs(x) ** 2
+
+    for i, sigma in enumerate(sigmas):
+
+        def smooth(x): return gauss_smooth(x, sigma)
+
+        # denominator for coherence calculation
+        coh_amp_z = smooth(amp2(wx[i, :])) * smooth(amp2(wy[i, :]))
+
+        # for 0-valued amplitudes, define coherence as 0 (hence inf in the denominator)
+        coh_amp_z[coh_amp_z == 0] = np.inf
+
+        wxy[i, :] = smooth(wxy[i, :])
+        coh_amp = amp2(wxy[i]) / coh_amp_z
+        coh_phi = np.angle(wxy[i])
+
+        # remove artefacts due to pathological smoothing for extremely small or large sigmas
+        coh_amp = np.clip(coh_amp, 0, 1)
+        coh[i, :] = coh_amp * np.exp(1j * coh_phi)
+
+    return coh
