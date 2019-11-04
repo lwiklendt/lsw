@@ -19,7 +19,10 @@ def edges_to_centers(edges, log=False):
 def centers_to_edges(centers, log=False):
     if log:
         centers = np.log2(centers)
-    dx = centers[1] - centers[0]
+    if len(centers) == 1:
+        dx = 1
+    else:
+        dx = centers[1] - centers[0]
     edges = np.r_[centers, centers[-1] + dx] - 0.5 * dx
     if log:
         edges = 2 ** edges
