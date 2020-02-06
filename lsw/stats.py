@@ -177,9 +177,9 @@ def ci_hdi(x, pct=95, sigma=None):
     return x[min_width_idx], x[min_width_idx + ci_idx_inc]
 
 
-def ci_pctl(x, pct=95):
-    x_lower = np.percentile(x, 0.5 * (100 - pct))
-    x_upper = np.percentile(x, 0.5 * (100 + pct))
+def ci_pctl(x, pct=95, **kwargs):
+    x_lower = np.percentile(x, 0.5 * (100 - pct), **kwargs)
+    x_upper = np.percentile(x, 0.5 * (100 + pct), **kwargs)
     return x_lower, x_upper
 
 
