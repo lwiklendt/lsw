@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.ticker as mticker
 
 
 def extent(x, y):
@@ -45,3 +46,25 @@ def fig2bgr(fig):
     w, h = fig.canvas.get_width_height()
     buf = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
     return buf.reshape((h, w, 3))[:, :, ::-1]
+
+
+def log2_ticks_labels(vmax, thresh=2):
+
+    log2_vmax = np.log2(np.exp(vmax))
+
+    # logarithmically-spaced ticks
+    if log2_vmax > thresh:
+        ticks = np.arange(0, np.ceil(log2_vmax) + 1)
+        ticks = np.r_[-ticks[1:][::-1], ticks]
+        ticklabels = [f'{2 ** v:g}' if v >= 0 else f'{2 ** -v:g}⁻¹' for v in ticks]
+        ticks = np.log(2 ** ticks)
+
+    # linearly-spaced ticks
+    else:
+        ticker = mticker.MaxNLocator(nbins=5, steps=[1, 2, 5, 10])
+        ticks = np.log2(np.array(ticker.tick_values(1, np.exp(vmax))))
+        ticks = np.r_[-ticks[1:][::-1], ticks]
+        ticklabels = [f'{2 ** v:g}' if v >= 0 else f'{2 ** -v:g}⁻¹' for v in ticks]
+        ticks = np.log(2 ** ticks)
+
+    return ticks, ticklabels
