@@ -179,23 +179,6 @@ def mean_coh_fisher(coh, weights=None, axis=None):
     return np.tanh(z) ** 2
 
 
-def noise_inv_power(t, gamma=1.0, min_freq=0.0, max_freq=np.inf):
-
-    def spec_func(f_):
-        f_ = np.abs(f_)
-        f_[f_ > 0] **= -gamma
-        f_[f_ <= min_freq] = 0
-        f_[f_ > max_freq] = 0
-        return f_
-
-    y, f = noise_spec_func(t, spec_func)
-
-    # normalise to unit standard deviation
-    y = y / np.std(y)
-
-    return y, f
-
-
 def noise_spec_func(t, spec_func):
 
     dt = t[1] - t[0]
