@@ -18,12 +18,12 @@ def get_shape(filename):
 
     # frame shape and rate (rate is used to calculate number of frames)
     line = [l for l in lines if ' Video: ' in l][0]
-    shape = map(int, re.search(r' (\d+)x(\d+)[ ,]', line).groups())
+    shape = [int(x) for x in re.search(r' (\d+)x(\d+)[ ,]', line).groups()]
     fps = float(re.search(r'(\d+) tbr', line).groups()[0])
 
     # number of frames
     line = [l for l in lines if ' Duration: ' in l][0]
-    hms = np.array(map(float, re.search(r'(\d{2}):(\d{2}):(\d{2}(?:.\d+))', line).groups()))
+    hms = np.array([float(x) for x in re.search(r'(\d{2}):(\d{2}):(\d{2}(?:.\d+))', line).groups()])
     num_frames = int(hms.dot([3600, 60, 1]) * fps)
 
     return shape[0], shape[1], num_frames, fps
