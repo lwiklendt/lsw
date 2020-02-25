@@ -1,6 +1,20 @@
 import datetime
 
 
+def zero_mu(x):
+    """
+    Sets the microseconds to 0.
+    :param x: a timedelta or datetime object
+    :return: the same type as x, with microseconds set to 0
+    """
+    if type(x) is datetime.datetime:
+        x = x.replace(microsecond=0)
+    elif type(x) is datetime.timedelta:
+        # https://stackoverflow.com/a/18470628/142712
+        x = x - datetime.timedelta(microseconds=x.microseconds)
+    return x
+
+
 # return the time difference from 0:00:00
 def time_to_timedelta(t):
     if type(t) is datetime.time:
