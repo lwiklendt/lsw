@@ -55,7 +55,7 @@ def permutation_swaps(n: int) -> Iterator[Tuple[int, int]]:
 
 def sub(xs, ys):
     """
-    Computes xs - ys, such that elements in a that occur in b are removed.
+    Computes xs - ys, such that elements in xs that occur in ys are removed.
     @param xs: list
     @param ys: list
     @return: xs - ys
