@@ -3,6 +3,7 @@ Miscellaneous functions that aren't generalisable, but I often need them.
 """
 
 import pandas as pd
+import numpy as np
 
 
 def load_hrm_txt(filename):
@@ -16,5 +17,9 @@ def load_hrm_txt(filename):
     times = x[:, 0]
     marks = x[:, 1]
     pres = x[:, 2:].T
+
+    # sometimes there is an extra column of NANs at the end, so remove it
+    if np.sum(np.isnan(pres[-1])) == len(times):
+        pres = pres[:-1, :]
 
     return times, marks, pres
