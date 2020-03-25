@@ -39,6 +39,7 @@ def box_baseline(x, size, k=1, iters=10, **kwargs):
             x = np.minimum(orig, x)
     return x
 
+
 def baseline_gauss(x, sigma, iters):
     orig = x
     for i in range(iters):
@@ -46,6 +47,7 @@ def baseline_gauss(x, sigma, iters):
         if i < iters - 1:
             x = np.minimum(orig, x)
     return x
+
 
 def butter_bandpass(x, fs_hz, low_hz, high_hz, order=15, axis=-1):
     nyq_hz = 0.5 * fs_hz

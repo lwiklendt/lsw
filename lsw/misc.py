@@ -5,6 +5,8 @@ Miscellaneous functions that aren't generalisable, but I often need them.
 import pandas as pd
 import numpy as np
 
+import lsw.signal
+
 
 def load_hrm_txt(filename):
     """
@@ -23,3 +25,24 @@ def load_hrm_txt(filename):
         pres = pres[:-1, :]
 
     return times, marks, pres
+
+
+def clean_pressures(p, sigma_samples, iters, sync_rem):
+    """
+    Performs baseline and synchronous anomaly removal.
+    @param p: (nchan, nsamp) shaped array of pressures
+    @param sigma_samples: parameter for lsw.signal.baseline_gauss
+    @param iters: parameter for lsw.signal.baseline_gauss
+    @param sync_rem: whether to perform synchronous anomaly removal
+    @return: cleaned p
+    """
+
+    # baseline removal
+    for i in range(p.shape[0]):
+        p[i, :] -= lsw.signal.baseline_gauss(p[i, :], sigma_samples, iters)
+
+    # synchronous activity removal
+    if sync_rem:
+        p = np.maximum(0, p - np.maximum(0, np.median(p, axis=0, keepdims=True)))
+
+    return p
