@@ -51,3 +51,13 @@ def permutation_swaps(n: int) -> Iterator[Tuple[int, int]]:
         else:
             c[i] = 0
             i += 1
+
+
+def sub(xs, ys):
+    """
+    Computes xs - ys, such that elements in a that occur in b are removed.
+    @param xs: list
+    @param ys: list
+    @return: xs - ys
+    """
+    return [x for x in xs if x not in ys]
