@@ -44,3 +44,20 @@ def seconds_to_hms_str(s):
     if s > 0:
         hms_str += ' {:g}s'.format(s)
     return hms_str.strip()
+
+
+class Timer:
+
+    def __init__(self):
+        self.start = datetime.datetime.now()
+
+    def elapsed(self):
+        return datetime.datetime.now() - self.start
+
+    def restart(self):
+        elapsed = self.elapsed()
+        self.start = datetime.datetime.now()
+        return elapsed
+
+    def __str__(self):
+        return f'{self.elapsed()}'
