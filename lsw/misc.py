@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 
 import lsw.signal
+import lsw.thread
 
 
 def load_hrm_txt(filename):
@@ -38,8 +39,9 @@ def clean_pressures(p, sigma_samples, iters, sync_rem):
     """
 
     # baseline removal
-    for i in range(p.shape[0]):
-        p[i, :] -= lsw.signal.baseline_gauss(p[i, :], sigma_samples, iters)
+    def exec_func(chan):
+        p[chan, :] -= lsw.signal.baseline_gauss(p[chan, :], sigma_samples, iters)
+    lsw.thread.parexec(exec_func, p.shape[0])
 
     # synchronous activity removal
     if sync_rem:
