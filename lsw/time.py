@@ -60,4 +60,4 @@ class Timer:
         return elapsed
 
     def __str__(self):
-        return f'{self.elapsed()}'
+        return self.elapsed().__str__()
