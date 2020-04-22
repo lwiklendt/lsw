@@ -71,16 +71,20 @@ def load_plothrm_detailed(filename):
 
         try:
 
-            def value_default(s, d):
+            sheetnumber = sheetidx + 1
+            worksheet = book.sheet_by_name(sheetname)
+
+            # try to load a value from the row and column
+            def value_default(row, col, d):
+                if row >= worksheet.nrows or col >= worksheet.ncols:
+                    return d
+                s = worksheet.cell_value(row, col)
                 if type(s) is str and len(s) == 0:
                     return d
                 else:
                     return s
 
-            sheetnumber = sheetidx + 1
-
             # load metadata
-            worksheet = book.sheet_by_name(sheetname)
             meta = dict()
             meta['sheetname'] = sheetname
             meta['sheetnumber'] = sheetnumber
@@ -90,11 +94,11 @@ def load_plothrm_detailed(filename):
             meta['nchan']           = int(worksheet.cell_value(3, 1))
             meta['nsamp']           = int(worksheet.cell_value(4, 1))
             meta['sampling_hz']     = float(worksheet.cell_value(5, 1))
-            meta['opt_zero_above']       = float(value_default(worksheet.cell_value(6,  2), np.nan))
-            meta['opt_remove_baselines'] = bool (value_default(worksheet.cell_value(6,  4), 0))
-            meta['opt_remove_sync']      = bool (value_default(worksheet.cell_value(6,  6), 0))
-            meta['opt_channel_smooth']   = bool (value_default(worksheet.cell_value(6,  8), 0))
-            meta['opt_sample_smooth']    = float(value_default(worksheet.cell_value(6, 10), np.nan))
+            meta['opt_zero_above']       = float(value_default(6,  2, np.nan))
+            meta['opt_remove_baselines'] = bool (value_default(6,  4, 0))
+            meta['opt_remove_sync']      = bool (value_default(6,  6, 0))
+            meta['opt_channel_smooth']   = bool (value_default(6,  8, 0))
+            meta['opt_sample_smooth']    = float(value_default(6, 10, np.nan))
             meta['height_res']  = float(worksheet.cell_value(7, 1))
             meta['sync_bound']  = float(worksheet.cell_value(8, 1))
             # TODO load region data at rows 9, 10, 11 (Excel 1-based index rows 10-12)
@@ -121,4 +125,4 @@ def load_plothrm_detailed(filename):
             print(f'  error parsing worksheet "{sheetname}": {e}')
             continue
 
-    return df_seq, df_meta
+    return df_seq.reset_index(drop=True), df_meta.reset_index(drop=True)
