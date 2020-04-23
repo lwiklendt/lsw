@@ -216,3 +216,47 @@ def decim_half(x, is_time=False, reduce='mean'):
 
 def scale01(x):
     return (x - x.min()) / (x.max() - x.min())
+
+
+@njit
+def viterbi(start_lp, trans_lp, emit_lp):
+    """
+    Viterbi algorithm for n samples and k states
+    :param start_lp: size k array of initial log probabilities (for the state just prior to the first emit sample),
+    :param trans_lp: size k*k array of transition log probabilities with trans_lp[b, a] from state a to b,
+    :param emit_lp: size n*k array of emission log probabilities,
+    :return: pair (seq, lp) where seq is a size n array of most-likely hidden states in {0, 1, ..., k-1}, and lp is the
+    log probability of the sequence.
+    """
+
+    n, k = emit_lp.shape
+
+    lp = np.zeros_like(emit_lp)
+
+    # state_from[i, a] is the state at i-1 that we transitioned from to get to state a
+    states_from = np.zeros((n, k), dtype=np.int64)
+
+    # forward (initial step)
+    for state_to in range(k):
+        lp_s = emit_lp[0] + start_lp
+        state_from = np.argmax(lp_s)
+        states_from[0, state_to] = state_from
+        lp[0, state_to] = lp_s[state_from]
+
+    # forward (remaining steps)
+    for i in range(1, n):
+        for state_to in range(k):
+            lp_s = emit_lp[i] + lp[i - 1] + trans_lp[state_to]
+            state_from = np.argmax(lp_s)
+            states_from[i, state_to] = state_from
+            lp[i, state_to] = lp_s[state_from]
+
+    # backward
+    seq = np.zeros(n, dtype=np.int64)
+    i = n - 1
+    seq[i] = np.argmax(lp[i])
+    while i >= 0:
+        seq[i - 1] = states_from[i, seq[i]]
+        i -= 1
+
+    return seq, np.max(lp[-1])
