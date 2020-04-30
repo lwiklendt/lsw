@@ -236,3 +236,14 @@ def beta_binomial_lpmf(n, N, alpha, beta):
     num = gammaln(N + 1) + gammaln(n + alpha) + gammaln(N - n + beta) + gammaln(alpha + beta)
     den = gammaln(n + 1) + gammaln(N - n + 1) + gammaln(N + alpha + beta) + gammaln(alpha) + gammaln(beta)
     return num - den
+
+
+def stars(p):
+    if p < 0.001:
+        return '***'
+    elif p < 0.01:
+        return '**'
+    elif p < 0.05:
+        return '*'
+    else:
+        return 'ns'
