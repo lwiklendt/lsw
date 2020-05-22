@@ -121,7 +121,7 @@ def load_plothrm_detailed(filename):
             else:
                 df_seq = df_seq.append(df)
 
-        except RuntimeError as e:
+        except Exception as e:
             print(f'  error parsing worksheet "{sheetname}": {e}')
             continue
 
