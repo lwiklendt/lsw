@@ -260,3 +260,33 @@ def viterbi(start_lp, trans_lp, emit_lp):
         i -= 1
 
     return seq, np.max(lp[-1])
+
+
+def xcorr(x, y, normalized=True):
+    """
+    Cross-correlation between x and y using numpy.correlate(x, y, mode='full'). This results in lags where a negative
+    lag means x comes before y, and positive lag x comes after y. As a mneumonic, think of it as a subtraction
+    t_x - t_y, with a lower time for x meaning it comes before y and has a negative lag.
+    :param x: size n signal array,
+    :param y: size n signal array,
+    :param normalized: bool on whether to use the normalized cross-correlation (default True),
+    :return: pair (xc, lags) where xc is an array of length 2*n-1 of the values of correlation, and lags is an array of
+    length 2*n-1 of lags in index units, with lags[n-1] representing 0 lag.
+    """
+
+    # correlate y and x,
+    #   a negative lag means x occurs before y
+    #   a positive lag means x occurs after y
+    xc = np.correlate(x, y, mode='full')
+
+    n = len(x)
+    lag0_idx = n - 1
+
+    if normalized:
+        x_auto = np.correlate(x, x, mode='full')
+        y_auto = np.correlate(y, y, mode='full')
+        xc /= np.sqrt(x_auto[lag0_idx] * y_auto[lag0_idx])
+
+    lags = (np.arange(2 * n - 1) - lag0_idx)
+
+    return xc, lags
