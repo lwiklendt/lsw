@@ -48,23 +48,22 @@ def fig2bgr(fig):
     return buf.reshape((h, w, 3))[:, :, ::-1]
 
 
-def log2_ticks_labels(vmax, thresh=2):
+def log_ticks_labels(log_xmax, thresh=1):
 
-    log2_vmax = np.log2(np.exp(vmax))
+    xmax = np.exp(log_xmax)
+    log2_xmax = np.log2(xmax)
 
-    # logarithmically-spaced ticks
-    if log2_vmax > thresh:
-        ticks = np.arange(0, np.ceil(log2_vmax) + 1)
-        ticks = np.r_[-ticks[1:][::-1], ticks]
-        ticklabels = [f'{2 ** v:g}' if v >= 0 else f'{2 ** -v:g}⁻¹' for v in ticks]
-        ticks = np.log(2 ** ticks)
+    # logarithmically-spaced ticks (will be linear-spaced on a log-scale axis)
+    if log2_xmax > thresh:
+        log2_ticks = np.arange(0, np.ceil(log2_xmax) + 1)
 
-    # linearly-spaced ticks
+    # linearly-spaced ticks (will be log-spaced on a linear-scale axis)
     else:
         ticker = mticker.MaxNLocator(nbins=5, steps=[1, 2, 5, 10])
-        ticks = np.log2(np.array(ticker.tick_values(1, np.exp(vmax))))
-        ticks = np.r_[-ticks[1:][::-1], ticks]
-        ticklabels = [f'{2 ** v:g}' if v >= 0 else f'{2 ** -v:g}⁻¹' for v in ticks]
-        ticks = np.log(2 ** ticks)
+        log2_ticks = np.log2(np.array(ticker.tick_values(1, xmax)))
 
-    return ticks, ticklabels
+    log2_ticks = np.r_[-log2_ticks[1:][::-1], log2_ticks]
+    ticklabels = [f'{2 ** v:g}' if v >= 0 else f'{2 ** -v:g}⁻¹' for v in log2_ticks]
+    log_ticks = np.log(2 ** log2_ticks)
+
+    return log_ticks, ticklabels
