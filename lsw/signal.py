@@ -290,3 +290,12 @@ def xcorr(x, y, normalized=True):
     lags = (np.arange(2 * n - 1) - lag0_idx)
 
     return xc, lags
+
+
+def consecutive(data, stepsize=1):
+    """
+    Thanks to https://stackoverflow.com/a/7353335/142712.
+    Find consecutive sequences in data. To get indexes of subsequences satsfying some predicate (e.g. > 0) do
+    for example: idxs = consecutive(np.where(x > 0)[0])
+    """
+    return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
