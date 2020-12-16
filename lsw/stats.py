@@ -143,6 +143,18 @@ def jensen_shannon_div(p, w=None):
     return entropy_discrete(p_avg) - np.sum(w * entropy_discrete(p, axis=1))
 
 
+def bootstrap_idxs(n, rng: np.random.Generator = None):
+    """
+    Generate a set of boostrap indexes of length n, returning the pair (in_bag, out_bag) containing the in-bag and
+    out-of-bag indexes as numpy arrays
+    """
+    if rng is None or type(rng) is not np.random.Generator:
+        rng = np.random.default_rng(rng)
+    in_bag = rng.integers(low=0, high=n, size=n)
+    out_bag = np.array(list(set(range(n)) - set(in_bag)))
+    return in_bag, out_bag
+
+
 # pretty much copied (with minor changes) from scikits.bootstrap which wouldn't install on my system
 # see https://github.com/cgevans/scikits-bootstrap/blob/master/scikits/bootstrap/bootstrap.py#L20
 def bootci_pi(data, statfunc=lambda x: np.mean(x, axis = 0), alpha=0.05, n_samples=10000):
