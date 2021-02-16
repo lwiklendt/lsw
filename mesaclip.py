@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-from lsw.signal import find_extrema
+from signal import find_extrema
 
 
 @njit
