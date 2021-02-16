@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-from signal import find_extrema
+import lsw.signal
 
 
 @njit
@@ -25,7 +25,7 @@ def mesaclip(x, y, k):
     n = len(y)
 
     # 1 for peak, -1 for trough, 0 otherwise
-    m = find_extrema(y)
+    m = signal.find_extrema(y)
 
     # stack stores active ranges to the left of the current peak, stack size is si, top element is at si - 1
     si = 0

@@ -4,9 +4,9 @@ from scipy.special import gamma
 from abc import ABC, abstractmethod
 from typing import Union, Iterable
 
-import mesaclip as mesaclip
-from thread import parexec
-from signal import make_nondecreasing, gauss_smooth
+import lsw.mesaclip
+from .thread import parexec
+from .signal import make_nondecreasing, gauss_smooth
 
 real = Union[float, int]
 R = Union[np.ndarray, Iterable, real]

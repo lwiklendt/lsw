@@ -7,8 +7,8 @@ import pandas as pd
 import numpy as np
 import xlrd
 
-import signal
-import thread
+import lsw.signal
+import lsw.thread
 
 
 def load_hrm_txt(filename):
