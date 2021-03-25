@@ -61,3 +61,21 @@ def sub(xs, ys):
     @return: xs - ys
     """
     return [x for x in xs if x not in ys]
+
+
+def list_of_dicts_to_dict_of_lists(ld):
+    """
+    Thanks to Andrew Floren from https://stackoverflow.com/a/33046935/142712
+    :param ld: list of dicts
+    :return: dict of lists
+    """
+    return {k: [d[k] for d in ld] for k in ld[0]}
+
+
+def dict_of_lists_to_list_of_dicts(dl):
+    """
+    Thanks to Andrew Floren from https://stackoverflow.com/a/33046935/142712
+    :param dl: dict of lists
+    :return: list of dicts
+    """
+    return [dict(zip(dl, t)) for t in zip(*dl.values())]
