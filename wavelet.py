@@ -4,7 +4,7 @@ from scipy.special import gamma
 from abc import ABC, abstractmethod
 from typing import Union, Iterable
 
-import lsw.mesaclip
+from .mesaclip import mesaclip
 from .thread import parexec
 from .signal import make_nondecreasing, gauss_smooth
 
@@ -226,7 +226,7 @@ def mesaclip_filter(w: C, k: real = 2) -> C:
 
     for i in range(nscale):
         c = make_nondecreasing(cycles[i, :])
-        mesaclip.mesaclip(c, amp[i, :], k_rad)
+        mesaclip(c, amp[i, :], k_rad)
 
     return amp * np.exp(1j * phase)
 
