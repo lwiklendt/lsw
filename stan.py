@@ -13,6 +13,11 @@ import pystan
 import numpy as np
 
 
+# To install pystan 2.19.1.1 on Windows:
+#  conda install libpython m2w64-toolchain -c msys2
+#  pip install pystan
+
+
 def check_div(fit):
     """Check transitions that ended with a divergence"""
     sampler_params = fit.get_sampler_params(inc_warmup=False)
@@ -123,59 +128,156 @@ def compile_model(code=None, code_filename=None, model_name=None, cache_filename
     return stan_model
 
 
-def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan_kwargs):
+def plot_traces(samples, method, params=None):
+
+    usetex = plt.rcParams['text.usetex']
+    plt.rcParams['text.usetex'] = False
+
+    # if no parameters supplied, get the list from the samples
+    if params is None:
+        params = list(samples.keys())
+
+    # plot params that are small enough to not overwhelm matplotlib using arbitrary threshold of prod(shape) < 1e6
+    params = [p for p in params if np.prod(samples[p].shape) < 1e6]
+
+    has_diagnostics = hasattr(samples, 'n_eff')
+
+    fig = plt.figure(figsize=(12, 2 * len(params) + 2 * has_diagnostics + 1))
+    gs = gridspec.GridSpec(len(params) + 2 * has_diagnostics, 2, width_ratios=[5, 1])
+    for i, k in enumerate(params):
+        print(f'plotting {k}... ', end='', flush=True)
+        s = samples[k]
+        is_multi = len(s.shape) > 1
+        if is_multi:
+            s = np.reshape(s, (s.shape[0], -1))
+
+        # plot traces
+        ax = fig.add_subplot(gs[i, 0])
+        ax.set_ylabel(k)
+        ax.plot(s, lw=1, alpha=0.7 if is_multi else 0.9)
+
+        # plot histograms
+        ax = fig.add_subplot(gs[i, 1])
+        if is_multi:
+            for j in range(s.shape[1]):
+                ax.hist(s[:, j], bins=50, alpha=0.8)
+        else:
+            ax.hist(s, bins=50)
+
+        print('done', flush=True)
+
+    if has_diagnostics:
+        # plot n_eff
+        print(f'plotting n_eff', flush=True)
+        ax = fig.add_subplot(gs[-2, :])
+        ax.hist(samples.n_eff[np.isfinite(samples.n_eff)], bins=100)
+        ax.set_xlabel('Number of effective samples')
+        ax.set_ylabel('Param Count')
+
+        # plot Rhat
+        print(f'plotting Rhat', flush=True)
+        ax = fig.add_subplot(gs[-1, :])
+        ax.hist(samples.rhat[np.isfinite(samples.rhat)], bins=100)
+        ax.set_xlabel('Rhat')
+        ax.set_ylabel('Param Count')
+
+    fig.tight_layout()
+
+    plt.rcParams['text.usetex'] = usetex
+
+    return fig
+
+
+def sample_in_path(stan_model, outpath, data, method='mcmc', allow_cache_overwrite=True,
+                   max_reseed_iters=0, reseed_rhat_thresh=1.1, **stan_kwargs):
+    """
+    Runs a PyStan fit, loading from cache if it exists and cache contains a correct fit.
+    :param stan_model: PyStan model.
+    :param outpath: path where sample cache, diagnostics text, and traces plot files will be written/read.
+    :param data: data sent to PyStan fit methods.
+    :param method: either 'mcmc', 'vb', or else applied to 'algorithm' keyword in optimizing method (eg 'LBFGS').
+    :param allow_cache_overwrite: if False will return cache no matter if data, model, or kwargs don't match the cache.
+    :param max_reseed_iters: if a bad fit occurs, including divergences, allow up to this many reseeds to try again.
+    :param reseed_rhat_thresh: Rhat threshold for decicing a bad fit.
+    :param stan_kwargs: kwargs sent to PyStan fit methods.
+    :return: (samples, bool) where bool is True if a sampling occured and False if it was loaded from cache.
+    """
 
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
     samples_cache_filename = os.path.join(outpath, 'samples.pkl')
-    diagnostics_filename   = os.path.join(outpath, 'diagnostics.txt')
-    traces_filename        = os.path.join(outpath, 'traces.png')
+    diagnostics_filename = os.path.join(outpath, 'diagnostics.txt')
+    traces_filename = os.path.join(outpath, 'traces.png')
 
     code_digest = md5(stan_model.model_code.encode('utf8')).hexdigest()
 
+    def is_bad_fit(_samples):
+        bad_rhat = np.max(samples.rhat) > reseed_rhat_thresh
+        bad_div = not samples.check_div.startswith('0 ')
+        return bad_rhat or bad_div
+
     # check if we need to resample, or can load from cache
     needs_sample = True
+    cache_exists = False
     samples = None
-    dict_digest = lambda d: md5(pickle.dumps(OrderedDict(sorted(d.items())))).hexdigest()
-    data_digest = _hash_dict_with_numpy_arrays(data)  # dict_digest doesn't seem to always produce the same hash for the same numpy arrays
-    kwargs_digest = dict_digest(stan_kwargs)
+    bad_fit = False
+    digests_changed = True
+    data_digest = _hash_dict_with_numpy_arrays(data)
+    kwargs_digest = _hash_dict_with_numpy_arrays(stan_kwargs)
     if samples_cache_filename is not None and os.path.exists(samples_cache_filename):
+        cache_exists = True
         with open(samples_cache_filename, 'rb') as f:
             cached_data_digest, cached_kwargs_digest, cached_code_digest, samples = pickle.load(f)
         data_changed = cached_data_digest != data_digest
         kwargs_changed = cached_kwargs_digest != kwargs_digest
         code_changed = cached_code_digest != code_digest
-        needs_sample = data_changed or kwargs_changed or code_changed
+        digests_changed = data_changed or kwargs_changed or code_changed
+        bad_fit = method == 'mcmc' and is_bad_fit(samples) and max_reseed_iters > 0
+        needs_sample = digests_changed or bad_fit
         if needs_sample:
             changes = ['model changed'] if code_changed else []
             changes += ['data changed'] if data_changed else []
             changes += ['stan kwargs changed'] if kwargs_changed else []
-            print(f'{", ".join(changes)}: resampling...')
+            changes += ['bad fit'] if bad_fit else []
+            print(f'{", ".join(changes)}')
 
     # sample posterior
-    if needs_sample:
+    did_sample = False
+    if not cache_exists or (needs_sample and allow_cache_overwrite):
 
-        if (method == 'mcmc' or method == 'vb') and stan_kwargs.get('init', None) == 'optimizing':
-            init_kwargs = dict(as_vector=True)
-            print(f'Initializing with LBFGS')
-            if 'seed' in stan_kwargs:
-                init_kwargs['seed'] = stan_kwargs['seed']
-            init = stan_model.optimizing(data, **init_kwargs)
-            init = [init, ] * stan_kwargs.get('chains', 1)
-            stan_kwargs['init'] = init
+        num_reseeds = 0
+        while True:
 
-        # perform mcmc sampling
-        if method == 'mcmc':
-            timer_start = datetime.datetime.now()
-            print(f'Started MCMC at {timer_start}')
-            stan_fit = stan_model.sampling(data=data, pars=params, **stan_kwargs)
-            print(f'Elapsed MCMC {datetime.datetime.now() - timer_start}')
+            # might need to increment seed if we had a bad fit
+            if bad_fit:
+                if num_reseeds < max_reseed_iters:
+                    num_reseeds += 1
+                    stan_kwargs['seed'] = samples.seed + 1
+                    print(f'reseed {num_reseeds} with new seed={stan_kwargs["seed"]}')
+                elif not digests_changed:
+                    # we don't have enough reseeds to continue, must return the bad samples we have
+                    break
 
-            samples = stan_fit.extract()
+            if (method == 'mcmc' or method == 'vb') and stan_kwargs.get('init', None) == 'optimizing':
+                init_kwargs = dict(as_vector=True)
+                print(f'Initializing with LBFGS')
+                if 'seed' in stan_kwargs:
+                    init_kwargs['seed'] = stan_kwargs['seed']
+                init = stan_model.optimizing(data, **init_kwargs)
+                init = [init, ] * stan_kwargs.get('chains', 1)
+                stan_kwargs['init'] = init
 
-            # store diagnostics in samples dict
-            if stan_fit is not None:
+            # perform mcmc sampling
+            if method == 'mcmc':
+                timer_start = datetime.datetime.now()
+                print(f'Started MCMC at {timer_start}')
+                stan_fit = stan_model.sampling(data=data, **stan_kwargs)
+                print(f'Elapsed MCMC {datetime.datetime.now() - timer_start}')
+
+                samples = stan_fit.extract()
+
+                # store diagnostics in samples dict
                 samples.seed = stan_fit.get_seed()
                 samples.elapsed_time = datetime.datetime.now() - timer_start
                 samples.check_fit = str(stan_fit)
@@ -188,85 +290,53 @@ def sample_in_path(stan_model, outpath, data, params=None, method='mcmc', **stan
                 samples.rhat = summary['summary'][:, summary['summary_colnames'].index('Rhat')]
                 print('\n'.join([samples.check_treedepth, samples.check_energy, samples.check_div]))
 
-        # perform vb sampling
-        elif method == 'vb':
-            results = stan_model.vb(data, pars=params, diagnostic_file=diagnostics_filename, **stan_kwargs)
-            samples = pystan_vb_extract(results)
+            # perform vb sampling
+            elif method == 'vb':
+                results = stan_model.vb(data, diagnostic_file=diagnostics_filename, **stan_kwargs)
+                samples = pystan_vb_extract(results)
 
-        else:
-            stan_kwargs['algorithm'] = method
-            samples = stan_model.optimizing(data, as_vector=True, **stan_kwargs)
+            else:
+                stan_kwargs['algorithm'] = method
+                samples = stan_model.optimizing(data, as_vector=True, **stan_kwargs)
 
-            # make compatible with sample, by returning as a single sample
-            for k, v in samples.items():
-                samples[k] = v[np.newaxis, ...]
+                # make compatible with sampling methods, by returning as a single sample
+                for k, v in samples.items():
+                    samples[k] = v[np.newaxis, ...]
 
-        # cache samples
-        with open(samples_cache_filename, 'wb') as f:
-            pickle.dump((data_digest, kwargs_digest, code_digest, samples), f, protocol=2)
+            did_sample = True
 
-        if method == 'mcmc':
-            # write various meta info
-            with open(diagnostics_filename, 'w') as f:
-                f.write(f'seed: {samples.seed}\n')
-                f.write(f'elapsed_time: {samples.elapsed_time}\n')
-                f.write(f'check_treedepth: {samples.check_treedepth}\n')
-                f.write(f'check_divergences: {samples.check_div}\n')
-                f.write(f'max rhat: {np.max(samples.rhat)}\n\n')
-                f.write(f'check_fit:\n{samples.check_fit}\n')
-
-        # if no parameters supplied, get the list from the samples
-        if params is None:
-            params = list(samples.keys())
-
-        # plot parameter traces
-        if method == 'mcmc' or method == 'vb':
-            pars = [p for p in params if len(samples[p].shape) < 3]
-            fig = plt.figure(figsize=(12, 2 * len(pars) + 3))
-            gs = gridspec.GridSpec(len(pars) + 2 * (method == 'mcmc'), 2, width_ratios=[5, 1])
-            for i, k in enumerate(pars):
-                print(f'plotting {k}... ', end='', flush=True)
-                ax = fig.add_subplot(gs[i, 0])
-                ax.set_ylabel(k)
-                is_multi = len(samples[k].shape) > 1
-                if np.prod(samples[k].shape) > 1e6:
-                    print('skipping', flush=True)
-                    continue
-                ax.plot(samples[k], lw=1, alpha=0.7 if is_multi else 0.9)
-                ax = fig.add_subplot(gs[i, 1])
-                if is_multi:
-                    for j in range(samples[k].shape[1]):
-                        ax.hist(samples[k][:, j], bins=30, alpha=0.8)
-                else:
-                    ax.hist(samples[k], bins=50)
-                print('done', flush=True)
+            # cache samples
+            with open(samples_cache_filename, 'wb') as f:
+                pickle.dump((data_digest, kwargs_digest, code_digest, samples), f, protocol=2)
+            digests_changed = False
 
             if method == 'mcmc':
+                # write various meta info
+                with open(diagnostics_filename, 'w') as f:
+                    f.write(f'seed: {samples.seed}\n')
+                    f.write(f'elapsed_time: {samples.elapsed_time}\n')
+                    f.write(f'check_treedepth: {samples.check_treedepth}\n')
+                    f.write(f'check_divergences: {samples.check_div}\n')
+                    f.write(f'max rhat: {np.max(samples.rhat)}\n\n')
+                    f.write(f'check_fit:\n{samples.check_fit}\n')
 
-                # plot n_eff
-                print(f'plotting n_eff', flush=True)
-                ax = fig.add_subplot(gs[-2, :])
-                ax.hist(samples.n_eff[np.isfinite(samples.n_eff)], bins=100)
-                ax.set_xlabel('Number of effective samples')
-                ax.set_ylabel('Param Count')
+            # plot parameter traces
+            if method == 'mcmc' or method == 'vb':
+                fig = plot_traces(samples, method, stan_kwargs.get('pars', None))
+                print(f'saving trace plot... ', end='', flush=True)
+                fig.savefig(traces_filename, dpi=150)
+                plt.close(fig)
+                print(f'done', flush=True)
 
-                # plot Rhat
-                print(f'plotting Rhat', flush=True)
-                ax = fig.add_subplot(gs[-1, :])
-                ax.hist(samples.rhat[np.isfinite(samples.rhat)], bins=100)
-                ax.set_xlabel('Rhat')
-                ax.set_ylabel('Param Count')
+            if method == 'mcmc':
+                print(f'min, max Rhat = {np.nanmin(samples.rhat)}, {np.nanmax(samples.rhat)}')
 
-            print(f'saving... ', end='', flush=True)
-            fig.tight_layout()
-            fig.savefig(traces_filename, dpi=150)
-            plt.close(fig)
-            print(f'done', flush=True)
+            # do we need to loop around again and increment the seed for a new sampling?
+            bad_fit = method == 'mcmc' and is_bad_fit(samples)
+            if not bad_fit:
+                break
 
-        if method == 'mcmc':
-            print(f'min, max Rhat = {np.nanmin(samples.rhat)}, {np.nanmax(samples.rhat)}')
-
-    return samples, needs_sample
+    return samples, did_sample
 
 
 def pystan_vb_extract(results):
