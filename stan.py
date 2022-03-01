@@ -16,10 +16,13 @@ import numpy as np
 from lsw.file import ensure_path
 
 
-def sample(src_stan_file: Union[str, Path], data: dict,
+def sample(src_stan_file: Union[str, Path],
+           data: dict,
            output_dir: Union[str, Path] = None,
-           sample_kwargs: dict = None, compile_kwargs: dict = None,
+           sample_kwargs: dict = None,
+           compile_kwargs: dict = None,
            force_resample = False,
+           method = 'mcmc',
            **other_sample_kwargs):
     """
     MCMC samples from a CmdStanModel.
@@ -34,6 +37,7 @@ def sample(src_stan_file: Union[str, Path], data: dict,
     :param compile_kwargs: kwargs passed to CmdStanModel.
         E.g. compile_kwargs = {'cpp_options': {'STAN_THREADS': True, 'STAN_OPENCL': True}}
     :param force_resample: force a resample even if otherwise it would not be needed
+    :param method: inference method, one of ['mcmc', 'vb'].
     :param other_sample_kwargs: kwargs to CmdStanModel.sample() that do not change the posterior
         distribution, such as refresh or show_progress. Any changes to these parameters will
         not trigger a resampling.
@@ -156,14 +160,24 @@ def sample(src_stan_file: Union[str, Path], data: dict,
 
     # Perform sampling.
     sampling_start = datetime.datetime.now()
-    result = m.sample(data=data, **{**sample_kwargs, **other_sample_kwargs})
+    if method == 'mcmc':
+        result = m.sample(data=data, **{**sample_kwargs, **other_sample_kwargs})
+    elif method == 'vb':
+        result = m.variational(data=data, **{**sample_kwargs, **other_sample_kwargs})
+    else:
+        raise RuntimeError(f'unknown inference method: {method}')
     sampling_end = datetime.datetime.now()
     print(f'Sampling complete in: {sampling_end - sampling_start}')
 
     # Write samples.
     print(f'Pickling posterior...', end='')
     start = datetime.datetime.now()
-    samples = result.stan_variables()
+    if method == 'mcmc':
+        samples = result.stan_variables()
+    elif method == 'vb':
+        samples = cmdstanvb_extract(result)
+    else:
+        raise RuntimeError(f'unknown inference method: {method}')
     with open(samples_file, 'wb') as f:
         pickle.dump(samples, f, protocol=4)
     print(f'done ({datetime.datetime.now() - start})')
@@ -186,21 +200,26 @@ def sample(src_stan_file: Union[str, Path], data: dict,
               f'sampling elapsed: {sampling_end - sampling_start}\n\n' \
               f'stan_kwargs={pprint.pformat(sample_kwargs)}\n\n'
 
-    # Diagnosis.
-    print(f'Diagnosing...', end='')
-    start = datetime.datetime.now()
-    summary += f'{result.diagnose()}\n\n'
-    print(f'done ({datetime.datetime.now() - start})')
+    if method == 'mcmc':
+        # Diagnosis.
+        print(f'Diagnosing...', end='')
+        start = datetime.datetime.now()
+        summary += f'{result.diagnose()}\n\n'
+        print(f'done ({datetime.datetime.now() - start})')
 
-    # Variable summary.
-    print(f'Summarising variables...', end='')
-    start = datetime.datetime.now()
-    df_summary = result.summary()
-    df_summary_non_nan = df_summary.dropna()
-    df_summary_nan = df_summary[df_summary.isnull().any(1)]
-    summary += f'Non-NaN summary:\n{df_summary_non_nan.to_string()}\n\n'
-    summary += f'NaN summary:\n{df_summary_nan.to_string()}'
-    print(f'done ({datetime.datetime.now() - start})')
+        # Variable summary.
+        print(f'Summarising variables...', end='')
+        start = datetime.datetime.now()
+        df_summary = result.summary()
+        df_summary_non_nan = df_summary.dropna()
+        df_summary_nan = df_summary[df_summary.isnull().any(1)]
+        summary += f'Non-NaN summary:\n{df_summary_non_nan.to_string()}\n\n'
+        summary += f'NaN summary:\n{df_summary_nan.to_string()}'
+        print(f'done ({datetime.datetime.now() - start})')
+    elif method == 'vb':
+        df_summary = None
+    else:
+        raise RuntimeError(f'unknown inference method: {method}')
 
     with open(output_dir / 'summary.txt', 'w') as f:
         f.write(summary)
@@ -218,7 +237,7 @@ def sample(src_stan_file: Union[str, Path], data: dict,
     return samples
 
 
-def plot_traces(samples, df_summary, params=None):
+def plot_traces(samples, df_summary=None, params=None):
 
     usetex = plt.rcParams['text.usetex']
     plt.rcParams['text.usetex'] = False
@@ -230,8 +249,8 @@ def plot_traces(samples, df_summary, params=None):
     # plot params that are small enough to not overwhelm matplotlib using arbitrary threshold of prod(shape) < 1e6
     params = [p for p in params if np.prod(samples[p].shape) < 1e6]
 
-    fig = plt.figure(figsize=(12, 2 * len(params) + 3))
-    gs = gridspec.GridSpec(len(params) + 2, 2, width_ratios=[5, 1])
+    fig = plt.figure(figsize=(12, 2 * len(params) + 1 + 2 * (df_summary is not None)))
+    gs = gridspec.GridSpec(len(params) + 2 * (df_summary is not None), 2, width_ratios=[5, 1])
     for i, k in enumerate(params):
         print(f'plotting {k}... ', end='', flush=True)
         s = samples[k]
@@ -258,24 +277,63 @@ def plot_traces(samples, df_summary, params=None):
 
         print('done', flush=True)
 
-    # plot N_Eff
-    print(f'plotting n_eff', flush=True)
-    ax = fig.add_subplot(gs[-2, :])
-    n_eff = df_summary['N_Eff'].values
-    ax.hist(n_eff[np.isfinite(n_eff)], bins=100)
-    ax.set_xlabel('Number of effective samples')
-    ax.set_ylabel('Param Count')
+    if df_summary is not None:
+        # plot N_Eff
+        print(f'plotting n_eff', flush=True)
+        ax = fig.add_subplot(gs[-2, :])
+        n_eff = df_summary['N_Eff'].values
+        ax.hist(n_eff[np.isfinite(n_eff)], bins=100)
+        ax.set_xlabel('Number of effective samples')
+        ax.set_ylabel('Param Count')
 
-    # plot Rhat
-    print(f'plotting Rhat', flush=True)
-    ax = fig.add_subplot(gs[-1, :])
-    rhat = df_summary['R_hat'].values
-    ax.hist(rhat[np.isfinite(rhat)], bins=100)
-    ax.set_xlabel('Rhat')
-    ax.set_ylabel('Param Count')
+        # plot Rhat
+        print(f'plotting Rhat', flush=True)
+        ax = fig.add_subplot(gs[-1, :])
+        rhat = df_summary['R_hat'].values
+        ax.hist(rhat[np.isfinite(rhat)], bins=100)
+        ax.set_xlabel('Rhat')
+        ax.set_ylabel('Param Count')
 
     fig.tight_layout()
 
     plt.rcParams['text.usetex'] = usetex
 
     return fig
+
+
+def cmdstanvb_extract(vb):
+
+    samples = vb.variational_sample
+
+    # Cmdstanpy documentation says it returns a np.ndarray, but it actually returns a pandas DataFrame.
+    if type(samples) is not np.ndarray:
+        samples = samples.values
+
+    n = samples.shape[0]
+
+    # First pass, calculate the shape of each variable.
+    param_shapes = dict()
+    for column_name in vb.column_names:
+        splt = column_name.split('[')
+        name = splt[0]
+        if len(splt) > 1:
+            # No +1 for shape calculation because cmdstanpy already returns 1-based indexes for vb!
+            idxs = [int(i) for i in splt[1][:-1].split(',')]
+        else:
+            idxs = ()
+        param_shapes[name] = np.maximum(idxs, param_shapes.get(name, idxs))
+
+    # Create arrays.
+    params = {name: np.nan * np.empty((n, ) + tuple(shape)) for name, shape in param_shapes.items()}
+
+    # Second pass, fill arrays.
+    for j, column_name in enumerate(vb.column_names):
+        splt = column_name.split('[')
+        name = splt[0]
+        if len(splt) > 1:
+            idxs = [int(i) - 1 for i in splt[1][:-1].split(',')]  # -1 because cmdstanpy returns 1-based indexes for vb!
+        else:
+            idxs = ()
+        params[name][(..., ) + tuple(idxs)] = samples[:, j]
+
+    return params
