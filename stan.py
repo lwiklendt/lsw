@@ -16,6 +16,55 @@ import numpy as np
 from lsw.file import ensure_path
 
 
+def negbinom_mu_phi_to_alpha_beta(mu, phi):
+    """
+    Converts from Stan's alternative paramaterisation (mu, phi) to the (alpha, beta) parameterisation.
+    Where mean: mu = alpha/beta, variance: mu + mu**2/phi = alpha * (beta + 1) / beta**2.
+    :param mu: parameter 1
+    :param phi: parameter 2
+    :return: tuple (alpha, beta)
+    """
+    # Check:
+    #   alpha = phi
+    #   beta = phi/mu
+    #   mean:
+    #     mu = alpha / beta
+    #        = phi / (phi / mu)
+    #        = mu
+    #   variance:
+    #     mu + mu**2/phi = alpha * (beta + 1) / beta**2
+    #                    = phi * (phi/mu + 1) / (phi/mu)**2
+    #                    = phi * (phi/mu + 1) * mu**2/phi**2
+    #                    = (phi**2/mu + phi) * (mu**2/phi**2)
+    #                    = (phi**2/mu)*(mu**2/phi**2) + phi*(mu**2/phi**2)
+    #                    = mu + mu**2/phi
+    alpha = phi
+    beta = phi / mu
+    return alpha, beta
+
+
+def negbinom_mu_phi_to_numpy(mu, phi):
+    """
+    Converts from Stan's alternative paramaterisation (mu, phi) to the (n, p) parameterisation in
+    numpy and scipy, for n successes and probability p of success.
+    Where mean = mu, variance = mu + mu**2/phi.
+    :param mu: parameter 1
+    :param phi: parameter 2
+    :return: tuple (n, p)
+    """
+    # Check:
+    #   variance = mu + mu**2/phi
+    #   n = mu**2 / (var - mu)
+    #     = mu**2 / (mu + mu**2/phi - mu)
+    #     = mu**2 / (mu**2/phi)
+    #     = phi
+    #   p = n / (n + mu)
+    #     = phi / (phi + mu)
+    n = phi
+    p = phi / (phi + mu)
+    return n, p
+
+
 def sample(src_stan_file: Union[str, Path],
            data: dict,
            output_dir: Union[str, Path] = None,
