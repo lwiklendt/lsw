@@ -6,6 +6,7 @@ import pickle
 import pprint
 import shutil
 import sys
+import tempfile
 from typing import Union
 
 import matplotlib.pyplot as plt
@@ -65,9 +66,9 @@ def negbinom_mu_phi_to_numpy(mu, phi):
     return n, p
 
 
-def sample(src_stan_file: Union[str, Path],
-           data: dict,
-           output_dir: Union[str, Path] = None,
+def sample(src_stan_filename: Union[str, Path],
+           data: dict = None,
+           output_dirname: Union[str, Path] = None,
            sample_kwargs: dict = None,
            compile_kwargs: dict = None,
            force_resample = False,
@@ -76,9 +77,9 @@ def sample(src_stan_file: Union[str, Path],
     """
     MCMC samples from a CmdStanModel.
 
-    :param src_stan_file: Stan source code file. Will be compied over to output dir
-    :param data: dict mapping from data block variable names to data
-    :param output_dir: Location to where artefacts will be written. Uses Path(src_stan_file).parent if None
+    :param src_stan_filename: Stan source code filename. Will be compied over to output dir
+    :param data: dict mapping from data block variable names to data. If None then attempt to obtain cached samples.
+    :param output_dirname: Location to where artefacts will be written. Uses Path(src_stan_file).parent if None
     :param sample_kwargs: args that can modify the output, such as seed, adapt_delta etc.
         These kwargs will be included in the hash to check whether we can use the cached
         samples, or whether we need to resample the model. For other args that do not
@@ -93,23 +94,21 @@ def sample(src_stan_file: Union[str, Path],
     :return: dict of variable names mapping to posterior samples.
     """
 
-    # TODO
-    #  - Show which parts of the model source code changed?
-
     # Create filenames and dirnames.
-    src_stan_file = Path(src_stan_file)
-    model_name = src_stan_file.stem
-    output_dir = src_stan_file.parent / model_name if output_dir is None else Path(output_dir)
-    dst_stan_file = output_dir / src_stan_file.name
-    samples_file = output_dir / 'samples.pkl'
-    data_file = output_dir / 'data.pkl'
-    compile_kwargs_file = output_dir / 'compile_kwargs.pkl'
-    sample_kwargs_file = output_dir / 'sample_kwargs.pkl'
-    log_file = output_dir / 'log.txt'
-    traces_plot_file = output_dir / 'traces.png'
-    ensure_path(output_dir)
+    src_stan_filename = Path(src_stan_filename)
+    model_name = src_stan_filename.stem
+    output_dirname = src_stan_filename.parent / model_name if output_dirname is None else Path(output_dirname)
+    dst_stan_filename = output_dirname / src_stan_filename.name
+    samples_filename = output_dirname / 'samples.pkl'
+    data_file = output_dirname / 'data.pkl'
+    compile_kwargs_filename = output_dirname / 'kwargs_compile.pkl'
+    sample_kwargs_filename = output_dirname / 'kwargs_sample.pkl'
+    compile_log_filename = output_dirname / 'log_compile.txt'
+    sample_log_filename = output_dirname / 'log_sample.txt'
+    traces_plot_filename = output_dirname / 'traces.png'
+    ensure_path(output_dirname)
 
-    # Sanitise kwargs.
+    # Ensure kwargs are dict in place of None.
     sample_kwargs = {} if sample_kwargs is None else sample_kwargs
     compile_kwargs = {} if compile_kwargs is None else compile_kwargs
 
@@ -119,93 +118,119 @@ def sample(src_stan_file: Union[str, Path],
 
     # If compile_kwargs is the same as cached, then we don't force compile.
     compile = 'force'
-    if compile_kwargs_file.exists():
-        with open(compile_kwargs_file, 'rb') as f:
+    if compile_kwargs_filename.exists():
+        with open(compile_kwargs_filename, 'rb') as f:
             compile_kwargs_cached = pickle.load(f)
         if compile_kwargs_cached == compile_kwargs:
             # Turn off forced compile, and go back to weaker compile determination based only on source code change.
             compile = True
-
     if compile == 'force':
         print('cached compile_kwargs missing or different')
 
-    # Setup logging, DEBUG to file, INFO to stdout.
+    # Setup logging, DEBUG by default and INFO to stdout.
     logger = logging.getLogger('cmdstanpy')
     logger.setLevel(logging.DEBUG)
-    if len(logger.handlers) == 0:
-        fh = logging.FileHandler(filename=log_file, mode='w')
-        fh.setLevel(logging.DEBUG)
-        logger.addHandler(fh)
-        sh = logging.StreamHandler(sys.stdout)
-        sh.setLevel(logging.INFO)
-        logger.addHandler(sh)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(logging.INFO)
+    logger.addHandler(sh)
+
+    # TODO
+    #  - Diff model source code to show what has changed before copying over?
 
     # Copy stan file over to output directory.
-    shutil.copy2(src_stan_file, dst_stan_file)
+    shutil.copy2(src_stan_filename, dst_stan_filename)
 
-    # Create model, possibly recompiling.
-    pre_compile_time = datetime.datetime.now().timestamp()
-    m = CmdStanModel(stan_file=dst_stan_file, compile=compile, **compile_kwargs)
-    exe_file = Path(m.exe_file)
-    new_exe = False
-    if exe_file.exists():
-        if os.path.getmtime(exe_file) > pre_compile_time:
-            new_exe = True
+    # Prepare and add compile log file handler.
+    # We don't know whether CmdStanModel will need to compile a new file or not, so we store the log
+    # in a temporary file and if a recompilation was indeed performed we copy over that file to
+    # compile_log_file.
+    with tempfile.TemporaryDirectory() as tempdir:
+        compile_log_tempfilename = Path(tempdir)/'log_compile.txt'
+        compile_log_handler = logging.FileHandler(filename=compile_log_tempfilename)
+        compile_log_handler.setLevel(logging.DEBUG)
+        logger.addHandler(compile_log_handler)
+
+        # Create model, possibly recompiling.
+        pre_compile_time = datetime.datetime.now().timestamp()
+        m = CmdStanModel(stan_file=dst_stan_filename, compile=compile, **compile_kwargs)
+        exe_file = Path(m.exe_file)
+        new_exe = False
+        if exe_file.exists():
+            if os.path.getmtime(exe_file) > pre_compile_time:
+                new_exe = True
+
+        # Compilation complete so remove and close the compile log handler.
+        logger.removeHandler(compile_log_handler)
+        if new_exe:
+            # If there was a compilation, store the log file
+            shutil.copy2(compile_log_tempfilename, compile_log_filename)
+        compile_log_handler.close()
 
     # Write compile_kwargs.
-    with open(compile_kwargs_file, 'wb') as f:
+    with open(compile_kwargs_filename, 'wb') as f:
         pickle.dump(compile_kwargs, f, protocol=4)
-
-    # Only want debug level for the compilation
-    logger.setLevel(logging.INFO)
 
     # ==================== #
     # ----- Sampling ----- #
     # ==================== #
 
-    # Identify reason for resampling for user feedback.
+    # Identify reason for resampling.
     resampling_reasons = []
     if force_resample:
         resampling_reasons.append('force resample')
     if new_exe:
         resampling_reasons.append('model recompiled')
-    if not samples_file.exists():
-        resampling_reasons.append('samples missing')
-    if not sample_kwargs_file.exists():
+    if not samples_filename.exists():
+        resampling_reasons.append('samples cache missing')
+    if not sample_kwargs_filename.exists():
         resampling_reasons.append('sample_kwargs cache missing')
-    if not data_file.exists():
+    # Data cache is allowed to be missing if no data is supplied, since user just wants to return samples rather than
+    # check whether resampling is required based on change in data.
+    if not data_file.exists() and data is not None:
         resampling_reasons.append('data cache missing')
 
-    # If sample_kwargs or data have not changed, then load and return the cached samples.
+    # If there is no reason to resample yet then try loading the cached samples.
     if len(resampling_reasons) == 0:
 
         # Check to see if the given sample_kwargs is the same as the cached sample_kwargs.
-        with open(sample_kwargs_file, 'rb') as f:
+        with open(sample_kwargs_filename, 'rb') as f:
             sample_kwargs_same = (sample_kwargs == pickle.load(f))
 
         # Check to see if the given data is the same as the cached data.
-        with open(data_file, 'rb') as f:
-            data_cache = pickle.load(f)
-            try:
-                np.testing.assert_equal(data, data_cache)
-                data_same = True
-            except AssertionError as e:
-                data_same = False
+        # If data is not supplied assume data is the same as the cached samples.
+        data_same = data is None
+        if data_file.exists():
+            with open(data_file, 'rb') as f:
+                data_cache = pickle.load(f)
+                try:
+                    np.testing.assert_equal(data, data_cache)
+                    data_same = True
+                except AssertionError:
+                    data_same = False
 
-        # If all checks passed then we can load the cached samples,
+        # If all checks passed then we can load the cached samples.
         if sample_kwargs_same and data_same:
-            with open(samples_file, 'rb') as f:
+            with open(samples_filename, 'rb') as f:
+                print('Returning cached samples')
                 return pickle.load(f)
 
         # otherwise, append the reason for failed checks.
         else:
             if not sample_kwargs_same:
                 resampling_reasons.append('sample_kwargs changed')
-            if not data_same:
-                resampling_reasons.append('data changed')
 
     # Report reasons for resampling.
     print(f'Resampling due to: {", ".join(resampling_reasons)}')
+
+    # If we have reached this point it means some kwargs changed or there are no samples, either
+    # way we need data to resample.
+    if data is None:
+        raise RuntimeError('No data supplied for sampling')
+
+    # We need to recompile, so prepare the sample log file.
+    sample_log_handler = logging.FileHandler(filename=sample_log_filename, mode='w')
+    sample_log_handler.setLevel(logging.DEBUG)
+    logger.addHandler(sample_log_handler)
 
     # Perform sampling.
     sampling_start = datetime.datetime.now()
@@ -218,6 +243,10 @@ def sample(src_stan_file: Union[str, Path],
     sampling_end = datetime.datetime.now()
     print(f'Sampling complete in: {sampling_end - sampling_start}')
 
+    # Sampling complete so remove and close the sample log handler.
+    logger.removeHandler(sample_log_handler)
+    sample_log_handler.close()
+
     # Write samples.
     print(f'Pickling posterior...', end='')
     start = datetime.datetime.now()
@@ -227,21 +256,30 @@ def sample(src_stan_file: Union[str, Path],
         samples = cmdstanvb_extract(result)
     else:
         raise RuntimeError(f'unknown inference method: {method}')
-    with open(samples_file, 'wb') as f:
+    with open(samples_filename, 'wb') as f:
         pickle.dump(samples, f, protocol=4)
     print(f'done ({datetime.datetime.now() - start})')
 
+    # Writing sample_kwargs and data cache is done only after writing the samples cache file so that we know that the
+    # caches and supplied values match.
+
     # Write sample_kwargs.
-    with open(sample_kwargs_file, 'wb') as f:
+    with open(sample_kwargs_filename, 'wb') as f:
         pickle.dump(sample_kwargs, f, protocol=4)
 
     # Write data cache.
-    with open(data_file, 'wb') as f:
-        pickle.dump(data, f, protocol=4)
+    if data is not None:
+        with open(data_file, 'wb') as f:
+            pickle.dump(data, f, protocol=4)
 
     # ================================= #
     # ----- Diagnosis and summary ----- #
     # ================================= #
+
+    # TODO report to stdout the number of divergences and any other diagnostic problems.
+    #  - Even better would be to structured diagnostic output in something like json format to a file,
+    #    but only showing problems such as rhats larger than certain values.
+    #  - We would like to ask something like has_problems() and get a bool.
 
     # Overview and args.
     summary = f'sampling started: {sampling_start}\n' \
@@ -270,7 +308,7 @@ def sample(src_stan_file: Union[str, Path],
     else:
         raise RuntimeError(f'unknown inference method: {method}')
 
-    with open(output_dir / 'summary.txt', 'w') as f:
+    with open(output_dirname / 'summary.txt', 'w') as f:
         f.write(summary)
 
     # ======================= #
@@ -278,10 +316,10 @@ def sample(src_stan_file: Union[str, Path],
     # ======================= #
 
     fig = plot_traces(samples, df_summary)
-    fig.savefig(traces_plot_file)
+    fig.savefig(traces_plot_filename)
     plt.close(fig)
 
-    print(f'output_dir = {output_dir}')
+    print(f'output_dir = {output_dirname}')
 
     return samples
 
