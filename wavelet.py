@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Union, Iterable
 
 from .mesaclip import mesaclip
-from .thread import parexec
+from .parallel import parexec
 from .signal import make_nondecreasing, gauss_smooth
 
 real = Union[float, int]
