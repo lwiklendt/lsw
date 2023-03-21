@@ -11,7 +11,7 @@ __all__ = [
     'signal',
     'stan',
     'stats',
-    'thread',
+    'parallel',
     'time',
     'wavelet',
 ]
