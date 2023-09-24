@@ -1,7 +1,7 @@
 import datetime
 import logging
 import os
-from pathlib2 import Path
+from pathlib import Path
 import pickle
 import pprint
 import shutil
@@ -77,7 +77,7 @@ def sample(src_stan_filename: Union[str, Path],
     """
     MCMC samples from a CmdStanModel.
 
-    :param src_stan_filename: Stan source code filename. Will be compied over to output dir
+    :param src_stan_filename: Stan source code filename. Will be copied over to output dir
     :param data: dict mapping from data block variable names to data. If None then attempt to obtain cached samples.
     :param output_dirname: Location to where artefacts will be written. Uses Path(src_stan_file).parent if None
     :param sample_kwargs: args that can modify the output, such as seed, adapt_delta etc.
